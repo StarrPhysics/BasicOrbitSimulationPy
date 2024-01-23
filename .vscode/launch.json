@@ -8,7 +8,7 @@
             "name": "Launch Main",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}\\main.py",
+            "program": "${workspaceFolder}\\simulation_test.py",
             "console": "integratedTerminal",
             "justMyCode": true
         }
