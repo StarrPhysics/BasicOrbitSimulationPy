@@ -11,7 +11,7 @@ from os import listdir as os_listdir
 
 ### Project Modules ###
 from vector import Vector, xhat, yhat, zeroVec
-from sim_object import SimObject
+from data_handling import SimObject
 from kinematics import Kinematics
 
 class Simulation:
@@ -36,8 +36,11 @@ class Simulation:
     # Runtime Variables
     __simuationStartTime: datetime
     __previousTime: datetime
+
     __animation: Animation.FuncAnimation = None
-    __simulation_data: list[list[SimObject]] = [[]]
+    __simulation_data: list[SimObject] = [[]]
+
+    #__sim_time: list[float] # List of number of sim_time seconds since simulation began, updated 
 
 
     def __init__(self, *,
@@ -70,13 +73,12 @@ class Simulation:
             The maximum number of iterations in the simulation cycle before the simulation concludes.
             If set to 0, the simulation will run indefinitly unless another stopping condition is met or
             unless the user kills the program.
-        `max_real_time : float (seconds)`: <--- NEEDS TO BE IMPLEMENTED
+        `max_real_time : float (seconds)`:
             The maximum amount of "real time" that the simulation will run for before the simulation 
             concludes. If set to 0, the simulation will run indefinitly unless another stopping condition 
             is met or unless the user kills the program.
         `max_sim_time : float (seconds)`: <--- NEEDS TO BE IMPLEMENTED
             The maximum amount of "simulation time" that the simulation will run for before the simulation
-        
         """
         self.set_dt(dt)
         self.set_G(G)
@@ -213,6 +215,7 @@ class Simulation:
                 
 
         newSimObject = SimObject(
+                                self,
                                 position if isinstance(position, Vector) else Vector(position), 
                                 velocity if isinstance(position, Vector) else Vector(velocity),
                                 name,
@@ -356,7 +359,8 @@ class Simulation:
             i = 0
             while True:
                 possibleName = f'output{i}.gif'
-                if i > 100: print('Bruh what the hell')
+                if i == 100: print('Bruh what the hell')
+                if i == 200: print('Chill out on the files my guy')
                 if possibleName not in os_listdir('./'):
                     self.__animation.save(f'./{possibleName}', writer=writer)
                     break

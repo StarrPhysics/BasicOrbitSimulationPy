@@ -1,4 +1,4 @@
-from sim_object import SimObject
+from data_handling import SimObject
 from vector import Vector
 import numpy as np
 
