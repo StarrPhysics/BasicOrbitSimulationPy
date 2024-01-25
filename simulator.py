@@ -1,11 +1,10 @@
-
 ### External Modules ###
 from matplotlib import style
 import matplotlib.pyplot as plt
 import matplotlib.animation as Animation
 from datetime import datetime
 from matplotlib.text import Text as plotText
-from typing import Union
+from typing import Union, TypeVar, Annotated
 import numpy as np
 from os import listdir as os_listdir
 
@@ -16,42 +15,47 @@ from kinematics import Kinematics
 
 class Simulation:
     """
-    <Description To Be Added>
+    An object oriented gravity simulation/sandbox library.
 
+    Library use is intended to be an accessable way of producing visual and numeric expression of newtonian gravitational mechanics.
     """
+    # Following Variables and their use are explained in Simulation.__init__()
     _dt: float
     _G: float
-    
     _interval: int
     _display_animation: bool
-
-    # Simulation Conclusion Conditions
     _max_iterations: int
     _max_real_time: int
     _max_sim_time: float
-
     _save_gif: bool
-    _gif_name: str
 
-    # Runtime Variables
-    __simuationStartTime: datetime
-    __previousTime: datetime
+    _gif_name: str # <--- Variable for a feature that has yet to be integrated
 
+    # Contains the instance of the matplotlib animation object which is created when the display is established
     __animation: Animation.FuncAnimation = None
-    __simulation_data: list[SimObject] = [[]]
 
-    #__sim_time: list[float] # List of number of sim_time seconds since simulation began, updated 
+    # Contains list of simulation objects which are iterated over for calculations during the simulation runtime
+    __simulation_data: list[SimObject] = []
 
+    # List of number of sim_time seconds since simulation began, updates every time a calculation cycle is executed 
+    __sim_time: list[float] 
+
+    # List of number of real_time seconds since simulation began, updates every time a calculation cycle is executed 
+    __real_time: list[float]
+
+    # Just a flag to keep track of whether the simulation is running or not
+    __simulation_running: bool = False
+    
 
     def __init__(self, *,
-                  dt = 0.01,                # .01 second default
-                  G = 6.67428e-11,
-                  display_animation = True,
-                  save_animation = False,
-                  interval = 300,           # 300 millisecond default
-                  max_iterations = 1000,    # 1000 iteration default
-                  max_real_time = 60*3,     # Three minute default
-                  max_sim_time = 0          # No default
+                  dt: float = 0.01,                # .01 second default
+                  G: float = 6.67428e-11,
+                  display_animation: True = True,
+                  save_gif: bool = False,
+                  interval: int = 300,           # 300 millisecond default
+                  max_iterations: int = 1000,    # 1000 iteration default
+                  max_real_time: float = 60.0*3, # Three minute default
+                  max_sim_time: float = 0.0      # No default
                 ) -> None:
         r"""
         Parameters
@@ -65,6 +69,8 @@ class Simulation:
         `display_animation : bool`
             Whether or not the simulation is complimented by an animation rendered using matplotlib. 
             For maximum performance and calculation speed, set to false.
+        `save_gif : bool`
+            Whether or not to save the animation as a gif. If set to `True`, the animation will be saved.
         `interval : int (milliseconds)`
             The amount of time between each frame of the animation. If `display_animation` is set to
             `False`, this value has no consequence to the simulation runtime. CAUTION: Setting this value
@@ -80,106 +86,120 @@ class Simulation:
         `max_sim_time : float (seconds)`: <--- NEEDS TO BE IMPLEMENTED
             The maximum amount of "simulation time" that the simulation will run for before the simulation
         """
-        self.set_dt(dt)
-        self.set_G(G)
-        self.set_interval(interval)
-        self.set_display_animation(display_animation)
-        self.set_save_gif(save_animation)
-        self.set_max_iterations(max_iterations)
-        self.set_max_real_time(max_real_time)
-        self.set_max_sim_time(max_sim_time)
-    
-    ### get/set methods ###
-    def get_dt(self): return self.dt
-    def set_dt(self, dt): #
-        if dt <= 0:
-            print('Warning, time step cannot be less than or equal to 0.')
-            print('Please submit another value.')
-        self._dt = dt
-    
-    def get_G(self): return self._G
-    def set_G(self, G): self._G = G
+        # Strange list nonsense is to avoid passing 'self' into `set_params_by_list()`.
+        self.set_params_by_list([(k,v) for (k,v) in locals().items() if k != 'self'])
 
-    def get_interval(self): self._interval
-    def set_interval(self, interval: int):
-        if self.__animation is not None:
-            print('Warning, animation interval cannot be changed while an animation is running.')
-            print('Please submit value before starting the animation.')
-            # To be honest, changing the interval during the animation probably wont do anything, 
-            # but I can't imagine why somebody would wanna do this and it seems potentially problematic 
-            # in the future depending on how the program develops
-        if interval <= 40:
-            if interval < 0:
-                print('Values for the interval cannot be less than 0.')
-                print('Please submit another value.')
-                return
-            print('WARNING: Setting the interval lower than 40 can cause the animation to lag.')
-            print('Ok: Continute, Cancel: Exit >>> ', end='')
-            userInput = input()
-            if userInput.lower() == 'ok':
-                pass
-            else:
-                return
-            
-        self._interval = interval
-    
-    def get_display_animation(self): self._display_animation
-    def set_display_animation(self, display_animation: bool):
-        if self.__animation is not None:
-            print('Warning, animation display cannot be changed while an animation is running.')
-            print('Please submit a value before starting the animation.')
+
+    def set_params_by_list(self, parameters: list[tuple]) -> None:
+        """
+        Allows for lists of parameters to be set in a single line. Used mostly for internal use, but can be used externally.
+        """
+        if self.isRunning():
+            print('Warning, simulation parameters cannot be changed or set while the simulation is running.')
+            print('Please submit new parameters before starting the simulation.')
             return
-
-        self._display_animation = display_animation
-
-    def get_save_gif(self): return self._save_gif
-    def set_save_gif(self, save_gif: bool):
-        if self.__animation is not None:
-            print('Warning, gif saving cannot be changed while an animation is running.')
-            print('Please submit a value before starting the animation.')
-            return
-        if 'pillow' not in Animation.writers.list():
-            print('Warning, gif saving requires the pillow library.')
-            print('Please install pillow and try again.')
-            print('Info avalable at: https://python-pillow.org')
-            return
-
-        self._save_gif = save_gif
-
-    def get_max_iterations(self): self._max_iterations
-    def set_max_iterations(self, max_iterations: int):
-        if self.__animation is not None:
-            print('Warning, max_iterations cannot be changed while an animation is running.')
-            print('Please submit value before starting the animation.')
-            return
-        if max_iterations < 0:
-            print('Warning, max_iterations cannot be less than 0.')
-            print('Please submit another value.')
         
-        self._max_iterations = max_iterations
+        for (k,v) in parameters: self.set_param(k,v) # Loops through the list of tuples and sets each parameter using the `set_param` function.
     
-    def get_max_real_time(self): self._max_real_time
-    def set_max_real_time(self, max_real_time: float): 
-        if self.__animation is not None:
-            print('Warning, `max_real_time` cannot be changed while an animation is running.')
-            print('Please submit value before starting the animation.')
-            return
-        if max_real_time < 0:
-            print('Warning, max_real_time cannot be less than 0.')
-            print('Please submit another value.')
 
-        self._max_real_time = max_real_time
-    
-    def get_max_sim_time(self): self._max_sim_time
-    def set_max_sim_time(self, max_sim_time: float):
-        if self.__animation is not None:
-            print('Warning, `max_sim_time` cannot be changed while an animation is running.')
-            print('Please submit value before starting the animation.')
+    def set_param(self, name: str, value):
+        """
+        Allows for the safe setting of simulation parameters.
+        """
+        if self.isRunning():
+            print('Warning, simulation parameters cannot be changed or set while the simulation is running.')
+            print('Please submit new parameters before starting the simulation.')
             return
-        if max_sim_time < 0:
-            print('Warning, max_sim_time cannot be less than 0.')
-            print('Please submit another value.')
         
+        # Used to ensure the input parameter is a type in `checkValueType()`. I guess its a type type? I don't know anymore
+        AnyType = TypeVar('AnyType') 
+
+        # Basically is the `isinstance` function with extra steps
+        def checkValueType(parameterName, givenValue: object, expectedType: AnyType):
+                if not isinstance(givenValue, expectedType):
+                    raise TypeError(f'Warning, parameter `{parameterName}` is of value "{givenValue}", which is not of allowed type {expectedType}.')
+                
+        match name:
+            case 'dt':
+                checkValueType(name, value, float)
+                if value <= 0:
+                    print('Warning, time step cannot be less than or equal to 0.')
+                    print('Please submit another value.')
+                    return
+                self._dt = value
+            case 'G':
+                checkValueType(name, value, Union[float,int])
+                if value <= 0: raise ValueError('Warning, gravitational constant cannot be less than or equal to 0.')
+                self._G = value
+            case 'display_animation':
+                checkValueType(name, value, bool)
+                self._display_animation = value
+            case 'save_gif':
+                checkValueType(name, value, bool)
+                self._save_gif = value
+            case 'set_interval':
+                checkValueType(name, value, int)
+                if value < 0:
+                    print('Warning, animation interval cannot be less than 0.')
+                    print('Please submit another value.')
+                    return
+                elif value <= 80:
+                    print('WARNING: Setting the interval lower than 40 can cause unstable animation rendering.')
+                    while True:
+                        print("Press 'C' to assign the current value, or 'X' to skip this value assignment: ", end='')
+                        if input().upper() == 'C': self._interval = value; return
+                        elif input().upper() == 'X': return
+                        else: print("Invalid input. Please try again.\n")
+            case 'max_iterations':
+                checkValueType(name, value, int)
+                if value < 0:
+                    print('Warning, maximum iterations cannot be less than 0.')
+                    print('Please submit another value.')
+                    return
+                self._max_iterations = value
+            case 'max_real_time':
+                checkValueType(name, value, Union[float,int])
+                if value < 0.0:
+                    print('Warning, maximum real-time cannot be less than 0.')
+                    print('Please submit another value.')
+                    return
+                self._max_real_time = value
+            case 'max_sim_time':
+                checkValueType(name, value, Union[float,int])
+                if value < 0.0:
+                    print('Warning, maximum simulation-time cannot be less than 0.')
+                    print('Please submit another value.')
+                    return
+                self._max_sim_time = value
+    
+    def isRunning(self) -> bool:
+        """
+        Returns True if the simulation is running.
+        """
+        return self.__simulation_running
+    
+    def getData(self, objectSelectionMethod: Union[int, str, list[str], Annotated[tuple[int], 2]] = None) -> Union[SimObject, list[SimObject]]:
+        """
+        Safely accesses the current amount data stored in the simulation instance
+        """
+        if objectSelectionMethod == None:
+             # Implies the user has no preference, and so all `SimObject`s are provided
+            return self.__simulation_data
+        elif isinstance(objectSelectionMethod, int):
+            # Implies the user intends to access a specific object by index
+            return self.__simulation_data[objectSelectionMethod]
+        elif isinstance(objectSelectionMethod, str):
+            # Implies the user intends to access a specific object by name
+            pass
+        elif isinstance(objectSelectionMethod, list[str]):
+            # Implies the user intends to access a list of objects by name
+            return [simObject for simObject in self.__simulation_data if simObject.name in objectSelectionMethod]
+        elif isinstance(objectSelectionMethod, Annotated[tuple[int], 2]):
+            # Implies user wants to access a substring of objects between two indicies:
+            start, finish = objectSelectionMethod
+            return self.__simulation_data[start:finish]
+
+
     def addObject(self,
                   position: Union[list[float], Vector],
                   velocity: Union[list[float], Vector],
@@ -189,7 +209,7 @@ class Simulation:
                   mass: float = 1.00
                   ):
         """
-        Adds an object to the simulation before runtime.
+        Adds an object to the simulation for .
 
         Parameters
         ----------
@@ -199,31 +219,28 @@ class Simulation:
 
             sim = Simulation()
         
-            simObject = SimObject(isStatic = False, position=[0,0], name='object1')
-        
-            sim.addObject(simObject)
+            sim.addObject([0,0], [0,1], mass = 2.0, isStatic = True)
         """
 
-        # Below code could be improved
-        if name is None: # Gives the `SimObject` a unique name if it uses the generic name `object`.
-            name = f"object{len(self.__simulation_data[0]) + 1}"
-        
-        if len(self.__simulation_data[0]) > 0:
-            for storedSimObject in self.__simulation_data[0]: # Checks to see if name is unique, which must be the case for __updateSimObjectKinematics to work correctly
-                if name == storedSimObject.name:
-                    raise Exception(f"Object with name `{name}` already exists in simulation.")
-                
+        # !--- Below code could be improved ---!
 
-        newSimObject = SimObject(
-                                self,
-                                position if isinstance(position, Vector) else Vector(position), 
-                                velocity if isinstance(position, Vector) else Vector(velocity),
-                                name,
-                                isStatic,
-                                mass,
-                                )
+        # Produces a unique name for the soon-to-be `SimObject`.
+        name = name or f"object{len(self.__simulation_data) + 1}"
+        
+        # Checks to see if `name` already exists as an object name in __simulation_data
+        if len(self.__simulation_data) > 0:
+            if name in [storedSimObject.name for storedSimObject in self.__simulation_data]:
+                    raise Exception(f"Object with name `{name}` already exists in simulation.")
             
-        self.__simulation_data[0].append(newSimObject)
+        self.__simulation_data.append(SimObject(
+                                    self,
+                                    position if isinstance(position, Vector) else Vector(position), 
+                                    velocity if isinstance(position, Vector) else Vector(velocity),
+                                    name,
+                                    isStatic,
+                                    mass,
+                                    )
+                                )
 
     def run(self):
         """
@@ -248,7 +265,7 @@ class Simulation:
         #### an uncaught exception is raised                                   ####
         
         # Used to compare to see if _max_real_time has been exceded in the animation() function
-        self.__simuationStartTime = datetime.now()
+        self.__simulationStartTime = datetime.now()
 
         # Used to calculate framerate for performance metrics
         self.__previousTime = datetime.now()
@@ -282,7 +299,7 @@ class Simulation:
                     simObject.position[1], # Inital y position
                     marker = 'o', # Object Marker
                     color = 'blue' if simObject.isStatic else 'red'
-                )[0] for simObject in self.__simulation_data[0]
+                )[0] for simObject in self.__simulation_data
             ] 
 
 
