@@ -10,7 +10,7 @@ from os import listdir as os_listdir
 
 ### Project Modules ###
 from vector import Vector, xhat, yhat, zeroVec
-from data_handling import SimObject
+from data_handling import SimObject, SimObjectList
 from kinematics import Kinematics
 
 class Simulation:
@@ -35,13 +35,7 @@ class Simulation:
     __animation: Animation.FuncAnimation = None
 
     # Contains list of simulation objects which are iterated over for calculations during the simulation runtime
-    __simulation_data: list[SimObject] = []
-
-    # List of number of sim_time seconds since simulation began, updates every time a calculation cycle is executed 
-    __sim_time: list[float] 
-
-    # List of number of real_time seconds since simulation began, updates every time a calculation cycle is executed 
-    __real_time: list[float]
+    __simulation_data: SimObjectList = SimObjectList()
 
     # Just a flag to keep track of whether the simulation is running or not
     __simulation_running: bool = False
@@ -137,7 +131,7 @@ class Simulation:
             case 'save_gif':
                 checkValueType(name, value, bool)
                 self._save_gif = value
-            case 'set_interval':
+            case 'interval':
                 checkValueType(name, value, int)
                 if value < 0:
                     print('Warning, animation interval cannot be less than 0.')
@@ -150,6 +144,8 @@ class Simulation:
                         if input().upper() == 'C': self._interval = value; return
                         elif input().upper() == 'X': return
                         else: print("Invalid input. Please try again.\n")
+                else:
+                    self._interval = value
             case 'max_iterations':
                 checkValueType(name, value, int)
                 if value < 0:
@@ -171,6 +167,8 @@ class Simulation:
                     print('Please submit another value.')
                     return
                 self._max_sim_time = value
+            case _:
+                raise ValueError(f"Provided argument '{name}' is not recognized as a simulation parameter")
     
     def isRunning(self) -> bool:
         """
@@ -178,27 +176,11 @@ class Simulation:
         """
         return self.__simulation_running
     
-    def getData(self, objectSelectionMethod: Union[int, str, list[str], Annotated[tuple[int], 2]] = None) -> Union[SimObject, list[SimObject]]:
+    def getData(self) -> SimObjectList:
         """
-        Safely accesses the current amount data stored in the simulation instance
+        Safely accesses the current amount data stored in the simulation instance.
         """
-        if objectSelectionMethod == None:
-             # Implies the user has no preference, and so all `SimObject`s are provided
-            return self.__simulation_data
-        elif isinstance(objectSelectionMethod, int):
-            # Implies the user intends to access a specific object by index
-            return self.__simulation_data[objectSelectionMethod]
-        elif isinstance(objectSelectionMethod, str):
-            # Implies the user intends to access a specific object by name
-            pass
-        elif isinstance(objectSelectionMethod, list[str]):
-            # Implies the user intends to access a list of objects by name
-            return [simObject for simObject in self.__simulation_data if simObject.name in objectSelectionMethod]
-        elif isinstance(objectSelectionMethod, Annotated[tuple[int], 2]):
-            # Implies user wants to access a substring of objects between two indicies:
-            start, finish = objectSelectionMethod
-            return self.__simulation_data[start:finish]
-
+        return str(self.__simulation_data)
 
     def addObject(self,
                   position: Union[list[float], Vector],
@@ -263,12 +245,10 @@ class Simulation:
             
         #### At this point going forward, the animation is set to occur unless ####
         #### an uncaught exception is raised                                   ####
-        
-        # Used to compare to see if _max_real_time has been exceded in the animation() function
-        self.__simulationStartTime = datetime.now()
-
-        # Used to calculate framerate for performance metrics
-        self.__previousTime = datetime.now()
+            
+        # Initalize `self.simulation_data.__sim_time` and `self.simulation_data.__real_time` data for the current time:
+        self.__simulation_data._SimObjectList__sim_time.append(0.0)
+        self.__simulation_data._SimObjectList__real_time.append(datetime.now())
 
         # Set up video encoding
         if self._save_gif:
@@ -295,8 +275,8 @@ class Simulation:
         # Contains every line object, which is currently 1:1 with the number of sim objects
         artists: list[plt.Line2D] = [
             ax.plot(
-                    simObject.position[0], # Inital x position
-                    simObject.position[1], # Inital y position
+                    simObject.get_latest('position')[0][0], # Inital x position
+                    simObject.get_latest('position')[0][1], # Inital y position
                     marker = 'o', # Object Marker
                     color = 'blue' if simObject.isStatic else 'red'
                 )[0] for simObject in self.__simulation_data
@@ -315,22 +295,19 @@ class Simulation:
                 do is to optomize the animation speed is enable blitz mode, which brought the animation
                 runtime down to 20ms.
             """
-            frameTime = int(round((datetime.now() - self.__previousTime).total_seconds() * 1000, 0))
-
-            self.__previousTime = datetime.now()
+            frameTime = int(round((datetime.now() - self.__simulation_data._SimObjectList__real_time[-1]).total_seconds() * 1000, 0))
 
             # Uses the latest data to determine new positions/velocities
             # While assigning this data to newObjectData
             # Followed by appending this data to __simulation_data
-            self.__simulation_data.append( 
-                newObjectData := Kinematics.updateSimObjectList(self._dt, self._G, self.__simulation_data[-1])
-            )
+             
+            simObjectList_updated: SimObjectList = Kinematics.updateSimObjectList(self.__simulation_data)
             
             # Updates each simObjects line to update the graph
             largest_abs_val = 0
 
-            for artist, objectData in zip(artists, newObjectData):
-                (x, y) = objectData.position
+            for artist, simObject in zip(artists, simObjectList_updated.__simulation_data):
+                (x, y) = simObject.position
                 
                 # (vel_x, vel_y) = (objectData.velocity[0], objectData.velocity[1])
                 # abs_vel = np.linalg.norm(objectData.velocity)
