@@ -32,13 +32,13 @@ class Simulation:
     _gif_name: str # <--- Variable for a feature that has yet to be integrated
 
     # Contains the instance of the matplotlib animation object which is created when the display is established
-    __animation: Animation.FuncAnimation = None
+    _animation: Animation.FuncAnimation = None
 
     # Contains list of simulation objects which are iterated over for calculations during the simulation runtime
-    __simulation_data: SimObjectList = SimObjectList()
+    _sim_object_list: SimObjectList = SimObjectList()
 
     # Just a flag to keep track of whether the simulation is running or not
-    __simulation_running: bool = False
+    _simulation_running: bool = False
     
 
     def __init__(self, *,
@@ -174,13 +174,13 @@ class Simulation:
         """
         Returns True if the simulation is running.
         """
-        return self.__simulation_running
+        return self._simulation_running
     
     def getData(self) -> SimObjectList:
         """
         Safely accesses the current amount data stored in the simulation instance.
         """
-        return str(self.__simulation_data)
+        return str(self._sim_object_list)
 
     def addObject(self,
                   position: Union[list[float], Vector],
@@ -207,32 +207,32 @@ class Simulation:
         # !--- Below code could be improved ---!
 
         # Produces a unique name for the soon-to-be `SimObject`.
-        name = name or f"object{len(self.__simulation_data) + 1}"
+        name = name or f"object{len(self._sim_object_list) + 1}"
         
-        # Checks to see if `name` already exists as an object name in __simulation_data
-        if len(self.__simulation_data) > 0:
-            if name in [storedSimObject.name for storedSimObject in self.__simulation_data]:
+        # Checks to see if `name` already exists as an object name in _data
+        if len(self._sim_object_list) > 0:
+            if name in [storedSimObject.name for storedSimObject in self._sim_object_list]:
                     raise Exception(f"Object with name `{name}` already exists in simulation.")
-            
-        self.__simulation_data.append(SimObject(
-                                    self,
-                                    position if isinstance(position, Vector) else Vector(position), 
-                                    velocity if isinstance(position, Vector) else Vector(velocity),
-                                    name,
-                                    isStatic,
-                                    mass,
-                                    )
-                                )
+
+        self._sim_object_list.append(SimObject(
+                                self,
+                                position if isinstance(position, Vector) else Vector(position),
+                                velocity if isinstance(velocity, Vector) else Vector(velocity),
+                                name,
+                                isStatic,
+                                mass,
+                                ))
+
 
     def run(self):
         """
         Executes the current instance of a simulation.
         """
 
-        if self._display_animation: self.__executeSimulation_MatPlotLib()
-        else:                       self.__executeSimulation_NoDisplay()
+        if self._display_animation: self._executeSimulation_MatPlotLib()
+        else:                       self._executeSimulation_NoDisplay()
     
-    def __executeSimulation_MatPlotLib(self):
+    def _executeSimulation_MatPlotLib(self):
         # Check if Stopping Methods are Enabled
         if self._max_iterations == 0 and self._max_real_time == 0 and self._max_sim_time == 0.0:
             print('WARNING: You currently do not have any stopping methods enabled.')
@@ -246,9 +246,9 @@ class Simulation:
         #### At this point going forward, the animation is set to occur unless ####
         #### an uncaught exception is raised                                   ####
             
-        # Initalize `self.simulation_data.__sim_time` and `self.simulation_data.__real_time` data for the current time:
-        self.__simulation_data._SimObjectList__sim_time.append(0.0)
-        self.__simulation_data._SimObjectList__real_time.append(datetime.now())
+        # Initalize `self.a_sim_object_listta._sim_time` and `self._sim_object_list._real_time` data for the current time:
+        self._sim_object_list._sim_times.append(0.0)
+        self._sim_object_list._real_times.append(datetime.now())
 
         # Set up video encoding
         if self._save_gif:
@@ -272,16 +272,16 @@ class Simulation:
                                              alpha=0.5)
                                     )
         
+
         # Contains every line object, which is currently 1:1 with the number of sim objects
         artists: list[plt.Line2D] = [
             ax.plot(
-                    simObject.get_latest('position')[0][0], # Inital x position
-                    simObject.get_latest('position')[0][1], # Inital y position
+                    [vector[0] for vector in simObject._positions], # Aquires all x positions
+                    [vector[1] for vector in simObject._positions], # Aquires all y positions
                     marker = 'o', # Object Marker
                     color = 'blue' if simObject.isStatic else 'red'
-                )[0] for simObject in self.__simulation_data
-            ] 
-
+                )[0] for simObject in self._sim_object_list
+            ]
 
         def animate(i): # Callback Function which updates the graph with the latest simulated data
             """
@@ -295,55 +295,37 @@ class Simulation:
                 do is to optomize the animation speed is enable blitz mode, which brought the animation
                 runtime down to 20ms.
             """
-            frameTime = int(round((datetime.now() - self.__simulation_data._SimObjectList__real_time[-1]).total_seconds() * 1000, 0))
+            frameTime = int(round((datetime.now() - self._sim_object_list._real_times[-1]).total_seconds() * 1000, 0))
+            self._sim_object_list._real_times.append(datetime.now())
 
-            # Uses the latest data to determine new positions/velocities
-            # While assigning this data to newObjectData
-            # Followed by appending this data to __simulation_data
-             
-            simObjectList_updated: SimObjectList = Kinematics.updateSimObjectList(self.__simulation_data)
-            
+            # Updates each `SimObject` in `_sim_object_list` with the latest data
+            # This is the beating heart of the simulation's recursive cycle
+            Kinematics.updateSimObjectList_Kinematics(self._sim_object_list, self._G, self._dt)
+            Kinematics.updateSimObjectList_AnimationQuantities(self._sim_object_list)
+
             # Updates each simObjects line to update the graph
             largest_abs_val = 0
 
-            for artist, simObject in zip(artists, simObjectList_updated.__simulation_data):
-                (x, y) = simObject.position
+            for artist, simObject in zip(artists, self._sim_object_list):
+                latest_positions = simObject._positions[-20:] if len(simObject._positions) >= 20 else simObject._positions
+                latest_x = [vector[0] for vector in latest_positions]
+                latest_y = [vector[1] for vector in latest_positions]
+                print(latest_x)
+                print(latest_y)
+                exit()
+                artist.set_data(latest_x, latest_y)
+
                 
-                # (vel_x, vel_y) = (objectData.velocity[0], objectData.velocity[1])
-                # abs_vel = np.linalg.norm(objectData.velocity)
-                # vel_unit_vector = abs_vel
-                (x_list,y_list) = artist.get_data()
-
-                x_list = np.concatenate((x_list, [x]), axis=0)
-                y_list = np.concatenate((y_list, [y]), axis=0)
-                
-
-                """
-                Gonna add later
-                plt.arrow(x,
-                          y,
-                          newX+newObjectData.,4,width=0.2)
-
-                """
-                
-                if len(x_list) > 20:
-                    x_list = x_list[-20:]
-                    y_list = y_list[-20:]
-
-                if abs(y_list.max()) > largest_abs_val: largest_abs_val = abs(y_list.max())
-                if abs(x_list.max()) > largest_abs_val: largest_abs_val = abs(x_list.max())
-
-                artist.set_data(x_list, y_list)
             
             axText.set_text(f'Iteration: {i}\nFrame Time: {frameTime}ms')
-            ax.set_xlim(-largest_abs_val * 1.33, largest_abs_val * 1.33)
-            ax.set_ylim(-largest_abs_val * 1.33, largest_abs_val * 1.33)
+            ax.set_xlim(tuple(self._sim_object_list._x_limit))
+            ax.set_ylim(tuple(self._sim_object_list._y_limit))
 
-            # if self._max_sim_time != 0 and sum(self.__simulation_data[-1][0].velocity) >= self._max
+            # if self._max_sim_time != 0 and sum(self._data[-1][0].velocity) >= self._max
             # Simulation Time limites need to be implemented
-            return tuple(artists)
-        
-        self.__animation = Animation.FuncAnimation(fig, animate, interval=self._interval, blit=False, cache_frame_data=False)
+            return (artists + [axText, ax]) 
+                
+        self._animation = Animation.FuncAnimation(fig, animate, interval=self._interval, blit=True)
         plt.show()
         
         # Saves the animation if the user has enabled it
@@ -356,27 +338,27 @@ class Simulation:
                 if i == 100: print('Bruh what the hell')
                 if i == 200: print('Chill out on the files my guy')
                 if possibleName not in os_listdir('./'):
-                    self.__animation.save(f'./{possibleName}', writer=writer)
+                    self._animation.save(f'./{possibleName}', writer=writer)
                     break
                 i += 1
 
-    def __executeSimulation_NoDisplay(self):
+    def _executeSimulation_NoDisplay(self):
         pass
 
-    def __check_ConcludeSimulation(self):
+    def _check_ConcludeSimulation(self):
         """
             Checks to see if the simulation has reached a conclusion.
             This is used to determine if the simulation should be terminated.
         """
-        if self._max_iterations != 0 and len(self.__simulation_data) >= self._max_iterations:
+        if self._max_iterations != 0 and len(self._data) >= self._max_iterations:
             print("Simulation finished.")
             print("Triggered By: Max Iterations")
             return True
-        if self._max_real_time != 0 and (datetime.now() - self.__simuationStartTime).seconds >= self._max_real_time:
+        if self._max_real_time != 0 and (datetime.now() - self._simuationStartTime).seconds >= self._max_real_time:
             print("Simulation finished.")
             print("Triggered By: Max Real-Time")
             return True
-        # if self._max_sim_time != 0 and sum(self.__simulation_data[-1][0].velocity) >= self._max_sim_time:
+        # if self._max_sim_time != 0 and sum(self._data[-1][0].velocity) >= self._max_sim_time:
         #     print("Simulation finished.")
         #     print("Triggered By: Max Simulation Time")
         #     return True

@@ -1,8 +1,7 @@
 from data_handling import SimObject, SimObjectList
 from vector import Vector
 import numpy as np
-
-G = 1 # 6.67408e-11
+import numpy.linalg as linalg
 
 class Kinematics:
     @classmethod
@@ -10,21 +9,34 @@ class Kinematics:
             """
             Calculates the mutual force between two objects.
             """
-            r_vec: Vector       = principleObject.position - attractorObject.position # Radial direction pointing from source of attraction
+
+            r_vec: Vector       = principleObject._positions[-1] - attractorObject._positions[-1] # Radial vector pointing from source of attraction
             r_squared: float    = np.dot(r_vec, r_vec) # Magnitude**2 of radial vector
             force:  Vector      = - (G * principleObject.mass * attractorObject.mass / r_squared) * r_vec # Force calculation, which is opposite of radial direction
 
             return force
+    @classmethod
+    def updateSimObjectList_AnimationQuantities(cls, simObjectList: SimObjectList):
+        """
+        Updates values in `simObjectList` assosiated with graphical representations of the simulation objects.
+        For example: the center of the simulated objects, or the furthest deviation these objects have from the center.
+        """
+        # Updates `SimObjectList._center` with the average of the x and y positions 
+        simObjectList._center = np.sum(simObjectList.positions(), axis=1)/len(simObjectList.positions())
+        
+        # Updates the `SimObjectList._max_center_deviation` with the largest center-simObject displacement vector's magnitude
+        simObjectList._max_center_deviation = max([linalg.norm(SimObject_position - simObjectList._center) for SimObject_position in simObjectList.positions()])
+        
+        simObjectList._x_limit = [simObjectList._center[0] - simObjectList._max_center_deviation, simObjectList._center[0] - simObjectList._max_center_deviation]
+        simObjectList._y_limit = [simObjectList._center[1] - simObjectList._max_center_deviation, simObjectList._center[1] + simObjectList._max_center_deviation]
     
     @classmethod
-    def updateSimObjectList(cls, simObjectList_Reference: SimObjectList) -> SimObjectList:
+    def updateSimObjectList_Kinematics(cls, simObjectList: SimObjectList, G: float, dt: float) -> None:
         """
-        Takes an instance of the `Simulation` Class, updates the `Simulation.__simulation_data` property 
-        to contain the latest kinematic data. Simultaniously, it returns a reference to `Simulation.__simulation_data`
-        for use by the inovcator (Aka. the line of code that called this function expecting a return).
+        Takes an instance of the `SimObjectList` Class by reference and updates the kinematic values assosiated with each `SimObject`.
         """
 
-        previouslyCalulatedMutualForces: list[list[Vector]] = [[None for _ in range(len(simObjectList_Reference) - i)] for i, _ in enumerate(simObjectList_Reference)]
+        previouslyCalulatedMutualForces: list[list[Vector]] = [[None for _ in range(len(simObjectList) - i)] for i, _ in enumerate(simObjectList)]
         # ^^^^ Stores calculated mutual forces for repeaded use in recipricol cases; all in all, it's purpose is to avoid redundent re-calculations of mutual force.
         # The list requires a specific notation to be used properly. As desribed below:
         #   The first entery is the index of the principleObject, and the second entry is the index of attractorObject.
@@ -61,19 +73,31 @@ class Kinematics:
         # Without Record Keeping: n^n
         # With Record Keeping: n!
         # Big improvement (I don't know how to use big O notation but this does the job)
+        
 
-        for (i, principleObj) in enumerate(simObjectList_Reference):
+
+        for (i, principleObj) in enumerate(simObjectList):
             # Loops through each `simObject` in `record` to calculate the force of each `simObject` with the other `simObject`s.
             # The `principleObj` is the current `simObject` whose force is being determined. Think of the principle as the "Center of the Universe" so to speak
             
             sumOfForces: Vector = Vector([0.0,0.0]) # Sum of all forces acting on `principleObj`
-            simObjectList_principleObjectComplement: list[SimObject] = simObjectList_Reference[:i] + simObjectList_Reference[i + 1:] # List of all `simObjects` which are
-            
-            
-            for (j, attractingObj) in enumerate(simObjectList_principleObjectComplement): # Removes current `simObject` from the record to avoid calculating force it has with itself
-                # Loops through to build the `sumOfForces` by adding all mutual forces the `principleObj` feels from all the other `attractingObj`s
+
+            for (j, attractingObj) in enumerate(simObjectList[:i]):
+                # For all objects where j < i, mutual force has been previously calculated at `previouslyCalulatedMutualForces[j][i]`
+                # The value becomes negitive since the force which effected it is opposite of the force it effects
+                sumOfForces += -1 * previouslyCalulatedMutualForces[j][i]
+
+            for (j, attractingObj) in enumerate(simObjectList[i+1:], start=i+1): 
+                # For all objects where j > i, mutual force must be calculated and stored at `previouslyCalulatedMutualForces[i][j]`
+                #print(principleObj._object_simulation_data.position)
+                #print(attractingObj._object_simulation_data.position)
                 
-                force_vec: Vector
+                force = cls.calculateMutualForce(principleObj, attractingObj, G)
+                previouslyCalulatedMutualForces[i][j] = force
+                sumOfForces += force
+
+                """force_vec: Vector
+                
                 # Checks to see if the mutual force has already been calculated
                 if (force := mutualForceRecord[j][i]) is not None:
                      force_vec: Vector = -1 * force
@@ -82,7 +106,7 @@ class Kinematics:
                     # If not, do the calculation and record the calculation for later use
                     mutualForceRecord[i][j] = (force_vec := cls.calculateMutualForce(principleObj, attractingObj, G))
     
-                sumOfForces = np.add(sumOfForces, force_vec)
+                sumOfForces = np.add(sumOfForces, force_vec)"""
             
             # If the `simObject` is static, then it's position and velocity are not updated.
             # This is done after doing the calculations so that mutual forces can be calculated for other objects.
@@ -90,7 +114,12 @@ class Kinematics:
                 continue
 
             # updates the position and velocity of the two objects
-            principleObj.position += (principleObj.velocity * dt) + (sumOfForces * (dt ** 2) / 2)
-            principleObj.velocity += (sumOfForces * dt) / principleObj.mass
-                
-        return updatedSimObjectList
+            nextPosition: Vector = principleObj._positions[-1]  + (principleObj._velocities[-1] * dt) + (sumOfForces * (dt ** 2) / 2)
+            nextVelocity: Vector = principleObj._velocities[-1] + (sumOfForces * dt) / principleObj.mass
+
+            principleObj._positions.append(nextPosition)
+            principleObj._velocities.append(nextVelocity)
+            principleObj._speeds.append(linalg.norm(nextVelocity))
+
+            
+            

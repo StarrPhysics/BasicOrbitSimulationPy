@@ -2,32 +2,35 @@ from vector import Vector, xhat, yhat, zeroVec
 from typing import Union
 from numpy import linalg
 
+"""
 class SimObjectData:
-        """
-        Class which defines the manner in which simulation objects store the data which is produced
-        during the simulation.
-        """
-
-        position: list[Vector] = []    # List of all position vectors
-        velocity: list[Vector] = []     # List of all velocity vectors 
-        speed: list[float] = []       # List of all magnitudes of velocity vectors
+        
+        # Class which defines the manner in which simulation objects store the data which is produced
+        # during the simulation.
+        
 
         def __init__(self, inital_position: Vector, inital_velocity: Vector) -> None:
-                self.position.append(inital_position)
-                self.velocity.append(inital_velocity)
-                self.speed.append(linalg.norm(inital_velocity))
-
+                self.positions.append(inital_position)
+                self.velocities.append(inital_velocity)
+                self.speeds.append(linalg.norm(inital_velocity))
+                #print(inital_position)
+"""
 
 class SimObject:
         """
         Class which defines the properties of a simulation object, establishes the location of stored data, and the methods to interact with that data during and after the simulation.
         """
-              
+
+        ### Single Assignment Variables ###
+        _parent: object # References the parent class, which is the containing instance of the Simulation class
         _objectName: str # Generic object name
         _objectMass: float # Object mass used in force calculations
-        
-        __parent: object # References the parent class, which is the containing instance of the Simulation class
-        __object_simulation_data: SimObjectData # Stores the actual data gathered during the simulation for this object
+        _isStatic: bool # Flag to determine whether the object is static or not
+
+        ### Re-referenced Variables ###
+        _positions: list[Vector]  = []  # List of all position vectors
+        _velocities: list[Vector] = []  # List of all velocity vectors 
+        _speeds: list[float]      = []  # List of all magnitudes of velocity vectors
 
         def __init__(self,
                      parent: object,
@@ -53,70 +56,24 @@ class SimObject:
                 `mass : float`
                         Mass of the object. Default is 1.00.
                 """
-                
+                init_velocity = init_velocity if not isStatic else zeroVec
 
-                self.name = name
-                self.mass = mass
-                self.isStatic = isStatic
-                self.__object_simulation_data = SimObjectData(
-                        init_position, 
-                        init_velocity if not isStatic else zeroVec
-                        )
+                self._parent     = parent
+                self.name        = name
+                self.mass        = mass
+                self.isStatic    = isStatic
+                self._positions  = [init_position]
+                self._velocities = [init_velocity]
+                self._speeds     = [linalg.norm(init_velocity)]
 
-        #def __str__(self):
-        #        return 'Blah'
-                
-        def get_latest(self, *args: str, amount: int = 1) -> tuple[Union[Vector,float]]:
-                """
-                Returns the latest kinematic data assosiated with the specific SimObject being called.
-
-                Parameters
-                ----------
-                `*args: strings` 
-                        Variable-length argument list of strings specifying the type data to retrieve. 
-                        Data tpes avaliable include 'position', 'velocity', 'speed', 'simulation_time', and 'real_time'.
-                        If no enteries are provided, then all data types are retrieved by default.
-
-                `amount: int` 
-                        The amount of data to retrieve from latest entery. Some example values include:
-                - If `amount = 10`; which returns 10 latest enteries. 
-                - If `amount = 1`; only returns the latest (aka. last) entry.
-                - If `amount = 0`; all data records are returned.
-
-                Examples
-                -------- ::
-
-                        sim = Simulation()
-
-                        sim.addObject([0,0], [1,1], isStatic=False)
-                        # Assume 3 additional objects have been added to the simulation
-                        # using the `addObject` method.
-
-                        sim.run()
-                        # Assume the simulation has completed its runtime,
-                        # as accessing data during runtime is restricted externally.
-
-                        sim.get_simulation_data()[0]
-
-                ! NEEDS COMPLETION !
-                ```
-
-                """
-
-                response: list = []
-
-                args = args or ('position','velocity','speed','simulation_time', 'real_time')
-                
-                for arg in args:
-                        match arg.lower():
-                                case 'position':        response += self.__object_simulation_data.position[-amount:]
-                                case 'velocity':        response += self.__object_simulation_data.velocity[-amount:]
-                                case 'speed':           response += self.__object_simulation_data.speed[-amount:]
-                                case 'simulation_time': response += self.__parent.__sim_time[-amount:]
-                                case 'real_time':       response += self.__parent.__real_time[-amount:]
-                                case _: raise KeyError(f"Invalid argument `{arg}` passed to `get_latest`.")
-                
-                return response
+        def __str__(self):
+                return 'SimObject(' + ', '.join([
+                                f"name='{self.name}'",
+                                f"mass={self.mass}",
+                                f"_positions={[(vector[0], vector[1]) for vector in self._positions[0:3]] if len(self._positions) < 3 else f'[...{self._positions[-1]}]'}",
+                                f"_velocities={[(vector[0], vector[1]) for vector in self._velocities[0:3]] if len(self._velocities) < 3 else f'[...{self._velocities[-1]}]'}",
+                                f"_speeds={self._speeds[0:3] if len(self._speeds) < 3 else f'[...{self._speeds[-1]}]'}",
+                        ]) + ')'
 
 class SimObjectList:
     """
@@ -127,12 +84,17 @@ class SimObjectList:
 
     items: SimObject
 
-
     # List of number of sim_time seconds since simulation began, updates every time a calculation cycle is executed 
-    __sim_time: list[float] = []
+    _sim_times: list[float] = []
 
     # List of number of real_time seconds since simulation began, updates every time a calculation cycle is executed 
-    __real_time: list[float] = []
+    _real_times: list[float] = []
+
+
+    _center: Vector = None # Center of the simulated objects
+    _max_center_deviation = None # Maximum deviation from the center of the simulated objects
+    _x_limit: list[float] = None # x-axis limits of the simulation
+    _y_limit: list[float] = None # y-axis limits of the simulation
 
     def __init__(self):
         self.items = []
@@ -156,4 +118,12 @@ class SimObjectList:
         return iter(self.items)
     
     def __str__(self):
-          return f"""[{", ".join([f"<class SimObject: '{simObject.name}'>" for simObject in self.items])}]"""
+          return ', \n'.join([
+                "SimObjectList(items=[\n" + ', \n'.join(f'\t\t{i}:  {str(simObject)}' for (i, simObject) in enumerate(self.items)) + f"\n\t{' ' * 5}]",
+                f"\t{' ' * 5}sim_times={self._sim_times}",
+                f"\t{' ' * 5}real_times={self._real_times}",
+          ])
+    
+    def positions(self) -> list[Vector]:
+         return [simObject._positions[-1] for simObject in self.items]
+              
